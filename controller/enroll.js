@@ -17,7 +17,7 @@ const sendEmail = async (auth, emailContent) => {
   const gmail = google.gmail({ version: "v1", auth });
 
   const raw = Buffer.from(
-    `From: ${process.env.SENDER_EMAIL}\r\nTo: ${process.env.RECIEVER_EMAIL}\r\nSubject: Enrollment Submission\r\n\r\n${emailContent}`
+    `From: yassinemijane@gmail.com\r\nTo: faf2001f@gmail.com\r\nSubject: Enrollment Submission\r\n\r\n${emailContent}`
   ).toString("base64");
 
   await gmail.users.messages.send({
