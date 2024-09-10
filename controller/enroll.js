@@ -6,18 +6,20 @@ const createOAuth2Client = (credentials) => {
   return new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
 };
 
-// Function to authorize OAuth2 client with provided token
-const authorizeOAuth2Client = (oauth2Client, token) => {
-  oauth2Client.setCredentials(token);
+// Function to set the refresh token for OAuth2 client
+const authorizeOAuth2ClientWithRefreshToken = (oauth2Client, refresh_token) => {
+  oauth2Client.setCredentials({
+    refresh_token: refresh_token,
+  });
+
   return oauth2Client;
 };
 
-// Function to send an email using the Gmail API
-const sendEmail = async (auth, emailContent) => {
+const sendEmail = async (auth, emailContent, recipientEmail) => {
   const gmail = google.gmail({ version: "v1", auth });
 
   const raw = Buffer.from(
-    `From: ${process.env.SENDER_EMAIL}\r\nTo: ${process.env.RECIEVER_EMAIL}\r\nSubject: Enrollment Submission\r\n\r\n${emailContent}`
+    `From: ${process.env.SENDER_EMAIL}\r\nTo: ${recipientEmail}\r\nSubject: Enrollment Submission\r\n\r\n${emailContent}`
   ).toString("base64");
 
   await gmail.users.messages.send({
@@ -29,43 +31,61 @@ const sendEmail = async (auth, emailContent) => {
 };
 
 const createEnrollment = async (req, res) => {
-  // Parse enrollment data from request body
   const enrollmentData = req.body;
 
   try {
-    // Load credentials from environment variables
     const credentials = {
       client_id: process.env.GOOGLE_CLIENT_ID,
       client_secret: process.env.GOOGLE_CLIENT_SECRET,
       redirect_uris: [process.env.GOOGLE_REDIRECT_URI],
     };
 
-    // Create OAuth2 client
     const oauth2Client = createOAuth2Client(credentials);
 
-    // Authorize OAuth2 client with provided token
-    const token = {
-      access_token: process.env.GOOGLE_ACCESS_TOKEN,
-      refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
-      scope: process.env.GOOGLE_SCOPE,
-      token_type: "Bearer",
-      expiry_date: process.env.GOOGLE_EXPIRY_DATE,
-    };
-    const auth = authorizeOAuth2Client(oauth2Client, token);
+    const auth = authorizeOAuth2ClientWithRefreshToken(
+      oauth2Client,
+      process.env.GOOGLE_REFRESH_TOKEN
+    );
 
-    // Prepare email content based on enrollment data
+    const recipientEmail =
+      enrollmentData.parentEmail || process.env.RECIEVER_EMAIL;
+
     const emailContent = getEmailContent(enrollmentData);
 
-    // Send email using Gmail API
-    await sendEmail(auth, emailContent);
+    await sendEmail(auth, emailContent, recipientEmail);
 
-    // Send response to client indicating successful enrollment
     res.status(200).json({ message: "Enrollment submitted successfully!" });
   } catch (error) {
     console.error("Error sending email:", error);
     res
       .status(500)
       .json({ error: "An error occurred while processing your request." });
+  }
+};
+
+const refreshAccessToken = async () => {
+  try {
+    const credentials = {
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      redirect_uris: [process.env.GOOGLE_REDIRECT_URI],
+    };
+
+    const oauth2Client = createOAuth2Client(credentials);
+
+    oauth2Client.setCredentials({
+      refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+    });
+
+    const { credentials: newCredentials } =
+      await oauth2Client.refreshAccessToken();
+
+    console.log(
+      "Access token refreshed successfully!",
+      newCredentials.access_token
+    );
+  } catch (error) {
+    console.error("Error refreshing access token:", error);
   }
 };
 
@@ -89,43 +109,41 @@ const getEmailContent = (enrollmentData) => {
     privacyPolicy,
   } = enrollmentData;
 
-  // Prepare email content based on enrollment data
   const subjectList = Array.isArray(subjects) ? subjects.join(", ") : "";
   const emailContent = `
-      Dear parent/guardian,
+    Dear parent/guardian,
   
-      Thank you for enrolling your child with us.
+    Thank you for enrolling your child with us.
   
-      Parent/Guardian Information:
-      - First Name: ${parentFirstName}
-      - Last Name: ${parentLastName}
-      - Email: ${parentEmail}
-      - Phone: ${parentPhone}
-      - Best Time to Contact: ${contactTime}
+    Parent/Guardian Information:
+    - First Name: ${parentFirstName}
+    - Last Name: ${parentLastName}
+    - Email: ${parentEmail}
+    - Phone: ${parentPhone}
+    - Best Time to Contact: ${contactTime}
   
-      Student Information:
-      - Child's First Name: ${childFirstName}
-      - Child's Last Name: ${childLastName}
-      - Child's Date of Birth: ${childDOB}
-      - Current School Level: ${schoolLevel}
-      - School Name: ${schoolName || "N/A"}
+    Student Information:
+    - Child's First Name: ${childFirstName}
+    - Child's Last Name: ${childLastName}
+    - Child's Date of Birth: ${childDOB}
+    - Current School Level: ${schoolLevel}
+    - School Name: ${schoolName || "N/A"}
   
-      Tutoring Details:
-      - Subjects for Tutoring: ${subjectList}
-      - Areas of Interest/Difficulty: ${areasOfInterest}
-      - Tutoring Goals: ${tutoringGoals}
+    Tutoring Details:
+    - Subjects for Tutoring: ${subjectList}
+    - Areas of Interest/Difficulty: ${areasOfInterest}
+    - Tutoring Goals: ${tutoringGoals}
   
-      Consent and Policies:
-      - Parent/Guardian Consent: ${parentConsent ? "Yes" : "No"}
-      - Cancellation Policy Agreement: ${
-        cancellationPolicy ? "Agreed" : "Not agreed"
-      }
-      - Privacy Policy and Terms of Service Agreement: ${
-        privacyPolicy ? "Agreed" : "Not agreed"
-      }
-  
-    `;
+    Consent and Policies:
+    - Parent/Guardian Consent: ${parentConsent ? "Yes" : "No"}
+    - Cancellation Policy Agreement: ${
+      cancellationPolicy ? "Agreed" : "Not agreed"
+    }
+    - Privacy Policy and Terms of Service Agreement: ${
+      privacyPolicy ? "Agreed" : "Not agreed"
+    }
+  `;
   return emailContent;
 };
 
-module.exports = { createEnrollment };
+module.exports = { createEnrollment, refreshAccessToken };
